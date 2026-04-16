@@ -11,12 +11,25 @@ const includeRelations = [
 // GET /api/laporan
 const getAll = async (req, res, next) => {
   try {
-    const { jurusan_id, matakuliah_id, dosen_id, status, tanggal_mulai, tanggal_akhir, kelas, pertemuan_ke, page = 1, limit = 20 } = req.query;
+    const {
+      jurusan_id,
+      matakuliah_id,
+      dosen_id,
+      mahasiswa_id,
+      status,
+      tanggal_mulai,
+      tanggal_akhir,
+      kelas,
+      pertemuan_ke,
+      page = 1,
+      limit = 20,
+    } = req.query;
     const where = {};
 
     if (jurusan_id)    where.jurusan_id    = jurusan_id;
     if (matakuliah_id) where.matakuliah_id = matakuliah_id;
     if (dosen_id)      where.dosen_id      = dosen_id;
+    if (mahasiswa_id)  where.mahasiswa_id  = mahasiswa_id;
     if (status)        where.status        = status;
     if (kelas)         where.kelas         = kelas;
     if (pertemuan_ke)  where.pertemuan_ke  = pertemuan_ke;
@@ -27,9 +40,18 @@ const getAll = async (req, res, next) => {
       if (tanggal_akhir) where.tanggal_pelaksanaan[Op.lte] = tanggal_akhir;
     }
 
-    // Mahasiswa & akun jurusan hanya melihat laporan dari jurusan mereka sendiri
-    if ((req.user.role === 'mahasiswa' || req.user.role === 'jurusan') && req.user.jurusan_id) {
+    // Mahasiswa hanya melihat laporan miliknya sendiri
+    if (req.user.role === 'mahasiswa') {
+      where.mahasiswa_id = req.user.id;
+    }
+
+    // Akun jurusan selalu melihat semua laporan pada jurusannya
+    if (req.user.role === 'jurusan') {
+      if (!req.user.jurusan_id) {
+        return res.status(403).json({ success: false, message: 'Akun jurusan tidak memiliki jurusan_id.' });
+      }
       where.jurusan_id = req.user.jurusan_id;
+      delete where.mahasiswa_id;
     }
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
@@ -61,6 +83,15 @@ const getById = async (req, res, next) => {
   try {
     const data = await Laporan.findByPk(req.params.id, { include: includeRelations });
     if (!data) return res.status(404).json({ success: false, message: 'Laporan tidak ditemukan.' });
+
+    if (req.user.role === 'mahasiswa' && data.mahasiswa_id !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Anda tidak memiliki akses ke laporan ini.' });
+    }
+
+    if (req.user.role === 'jurusan' && req.user.jurusan_id && data.jurusan_id !== req.user.jurusan_id) {
+      return res.status(403).json({ success: false, message: 'Anda tidak memiliki akses ke laporan ini.' });
+    }
+
     return res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);
